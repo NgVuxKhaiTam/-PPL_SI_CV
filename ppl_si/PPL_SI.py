@@ -51,8 +51,8 @@ def identify_intervals_in_segment(X, XK, a, b, Mobs, n, nK, Q, w_tilde, lambda_K
             left = max(lu, lv, lt)
             if right < left or right < z: 
                 print('Error')
-                return ([], [])
-
+                # return ([], [])
+                return []
             Mt = betaK_info["active_set"]
             if np.array_equal(Mobs, Mt):
                 intervals.append((left, right))
@@ -185,7 +185,8 @@ def identify_intervals_in_segment_param_only(XK, beta_sh, a, b, Mobs, nK, a_tild
             left = max(lv, lt)
             if right < left or right < z: 
                 print ('Error')
-                return ([], [])
+                # return ([], [])
+                return []
 
             Mt = betaK_info["active_set"]
             if np.array_equal(Mobs, Mt):
@@ -306,7 +307,8 @@ def identify_intervals_in_segment_dtf(X_tilde, XK, a, b, c, d, Mobs, q_tilde, la
             left = max(lu, lv, lt)
             if right < left or right < z: 
                 print('Error')
-                return ([], [])
+                # return ([], [])
+                return []
 
             Mt = betaK_info["active_set"]
             
