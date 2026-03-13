@@ -15,6 +15,10 @@ from .sub_prob import (
     compute_Zu, compute_Zv, compute_Zt, calculate_xi_zeta_star, calculate_phi_iota_xi_zeta,
     compute_Zu_dtf, compute_Zv_dtf, calculate_phi_iota_xi_zeta_dtf, calculate_c_d
 )
+from .cv_utils import (
+    make_kfold_splits, cv_select_lambda_sh, cv_select_Phi,
+    compute_Z2, compute_Z3, intersect_interval_lists
+)
 
 # Pretrained Lasso
 def identify_intervals_in_segment(X, XK, a, b, Mobs, n, nK, Q, w_tilde, lambda_K, rho, weight_inactive, z_start, z_end):
@@ -405,3 +409,105 @@ def PPL_SI_DTF_randj(XK, YK, beta_tilde_list, n_list, lambda_0, lambda_tilde, qk
 
     return j, p_value
 
+
+
+# Pretrained Lasso with CV
+def PPL_SI_CV(X_list, Y_list, Lambda, Lambda_tilde, Sigma_list, n_folds=5, z_min=-20, z_max=20, num_segments=1, seed=None):
+    X_ = np.concatenate(X_list)
+    Y = np.concatenate(Y_list)
+    XK_ = X_list[-1]
+    YK = Y_list[-1]
+    n_list = [Xk.shape[0] for Xk in X_list]
+    n = sum(n_list)
+    nK = n_list[-1]
+
+    X = add_intercept_column(X_)
+    XK = add_intercept_column(XK_)
+    Sigma = block_diag(*Sigma_list)
+
+    fold_splits_all = make_kfold_splits(n, n_folds, seed)
+    fold_splits_K = make_kfold_splits(nK, n_folds, seed)
+
+    lambda_sh_obs = cv_select_lambda_sh(X, Y, Lambda, fold_splits_all)
+    Phi_obs = cv_select_Phi(X, XK, Y, YK, lambda_sh_obs, Lambda_tilde, fold_splits_K)
+    rho_obs, lambda_K_obs = Phi_obs
+
+    w_tilde = np.concatenate(([0.0], np.full(X.shape[1] - 1, lambda_sh_obs))).reshape(-1, 1)
+    beta_sh_hat, beta_indiv_hat, betaK_hat = PretrainedLasso(X, Y, XK, YK, w_tilde, lambda_K_obs, rho_obs, n, nK)
+
+    Mobs = [i for i in range(len(betaK_hat)) if betaK_hat[i] != 0.0]
+
+    if len(Mobs) == 0:
+        return None
+
+    XK_M = XK[:, Mobs]
+
+    p_sel_list = []
+
+    for j in Mobs:
+        etaj, etajTY = construct_test_statistic(j, XK_M, Y, Mobs, n, nK)
+        a, b = calculate_a_b(etaj, Y, Sigma, n)
+
+        intervals_Z1 = divide_and_conquer(X, XK, a, b, Mobs, n, nK, w_tilde, lambda_K_obs, rho_obs, z_min, z_max, num_segments)
+
+        intervals_Z2 = compute_Z2(X, a.ravel(), b.ravel(), Lambda, lambda_sh_obs, fold_splits_all, z_min, z_max, num_segments)
+        intervals_Z3 = compute_Z3(X, XK, a.ravel(), b.ravel(), lambda_sh_obs, Lambda_tilde, Phi_obs, fold_splits_K, z_min, z_max, num_segments)
+
+        intervals_CV = intersect_interval_lists(
+            intersect_interval_lists(intervals_Z1, intervals_Z2),
+            intervals_Z3
+        )
+
+        p_value = calculate_TN_p_value(intervals_CV, etaj, etajTY, Sigma, 0)
+        p_sel_list.append((j, p_value))
+
+    return p_sel_list
+
+
+def PPL_SI_CV_randj(X_list, Y_list, Lambda, Lambda_tilde, Sigma_list, n_folds=5, z_min=-20, z_max=20, num_segments=1, seed=None):
+    X_ = np.concatenate(X_list)
+    Y = np.concatenate(Y_list)
+    XK_ = X_list[-1]
+    YK = Y_list[-1]
+    n_list = [Xk.shape[0] for Xk in X_list]
+    n = sum(n_list)
+    nK = n_list[-1]
+
+    X = add_intercept_column(X_)
+    XK = add_intercept_column(XK_)
+    Sigma = block_diag(*Sigma_list)
+
+    fold_splits_all = make_kfold_splits(n, n_folds, seed)
+    fold_splits_K = make_kfold_splits(nK, n_folds, seed)
+
+    lambda_sh_obs = cv_select_lambda_sh(X, Y, Lambda, fold_splits_all)
+    Phi_obs = cv_select_Phi(X, XK, Y, YK, lambda_sh_obs, Lambda_tilde, fold_splits_K)
+    rho_obs, lambda_K_obs = Phi_obs
+
+    w_tilde = np.concatenate(([0.0], np.full(X.shape[1] - 1, lambda_sh_obs))).reshape(-1, 1)
+    beta_sh_hat, beta_indiv_hat, betaK_hat = PretrainedLasso(X, Y, XK, YK, w_tilde, lambda_K_obs, rho_obs, n, nK)
+
+    Mobs = [i for i in range(len(betaK_hat)) if betaK_hat[i] != 0.0]
+
+    if len(Mobs) == 0:
+        return None
+
+    XK_M = XK[:, Mobs]
+
+    j = np.random.choice(Mobs)
+    etaj, etajTY = construct_test_statistic(j, XK_M, Y, Mobs, n, nK)
+    a, b = calculate_a_b(etaj, Y, Sigma, n)
+
+    intervals_Z1 = divide_and_conquer(X, XK, a, b, Mobs, n, nK, w_tilde, lambda_K_obs, rho_obs, z_min, z_max, num_segments)
+
+    intervals_Z2 = compute_Z2(X, a.ravel(), b.ravel(), Lambda, lambda_sh_obs, fold_splits_all, z_min, z_max, num_segments)
+    intervals_Z3 = compute_Z3(X, XK, a.ravel(), b.ravel(), lambda_sh_obs, Lambda_tilde, Phi_obs, fold_splits_K, z_min, z_max, num_segments)
+
+    intervals_CV = intersect_interval_lists(
+        intersect_interval_lists(intervals_Z1, intervals_Z2),
+        intervals_Z3
+    )
+
+    p_value = calculate_TN_p_value(intervals_CV, etaj, etajTY, Sigma, 0)
+
+    return j, p_value
